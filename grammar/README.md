@@ -141,7 +141,7 @@ $ ( export PATH=$HOME/sysu/bin:$PATH \
 
 可以发现，`clang -cc1 -ast-dump=json` 输出一个 json 格式的语法分析树。我们要求你的输出不包含图上忽略的内置类型，也不需要为每个节点生成单独的 `id`。
 
-本目录下提供了一个基于 antlr4 + `llvm::json` 实现的模板，接受词法分析器的输出，你可以基于此继续实现完整的逻辑，也可以使用其他的工具实现，如 bison，但不得使用任何封装好的库直接获得 ast，如 libclang。
+本目录下提供了一个基于 antlr4 + `llvm::json` 实现的模板，接受词法分析器的输出，你可以基于此继续实现完整的逻辑，也可以使用其他的工具实现，如 bison，但不得使用任何封装好的库直接获得 ast，如 libclang。[`C.g4`](./C.g4) 语法文件来自于 [antlr/grammars-v4](https://github.com/antlr/grammars-v4/blob/753536777d827ccc0c9b108531ea67375c2039ac/c/C.g4) 社区（感谢！），如有需要可自行修改。
 
 ### Q & A：实验要求太抽象了，需要一个更直观的例子
 
@@ -273,6 +273,12 @@ flowchart TD;
 1. 输出到 json，便于使用 python 脚本和 clang 导出的语法树对比，自动批改。
 2. 输出到 json，因为 json 格式非常容易理解，不需要像 [LLVM 官方教程](https://releases.llvm.org/17.0.0/docs/tutorial/MyFirstLanguageFrontend/LangImpl02.html) 一样定义很多节点。
 3. 输出到 `llvm::json`，可以让同学们提前上手 LLVM 库的使用，平滑下一个实验的难度。
+
+### Q & A：该选择 Visitor 还是 Listener？
+
+TL;DR: Vistor 更符合任务需求，但是 Listener 仍然更加趁手。
+
+Visitor 有更强的可定制性，但是需要自行实现每个节点到子节点的访问规则；Listener 则适合更轻量的任务，例如只提取某些语法规则的上下文。在本实验中，按道理每个节点都需要被访问，因此 Vistor 更符合任务需求，Listener 的优势没有那么大。然而，根据助教的使用经验，Listener 仍然是一个更常用且好用的选择。
 
 ## 评分规则
 
