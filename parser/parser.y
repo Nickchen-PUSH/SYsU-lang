@@ -3,13 +3,16 @@
   #include <llvm/Support/JSON.h>
   #include <llvm/Support/MemoryBuffer.h>
   #include <llvm/Support/raw_ostream.h>
-  #include "/root/SYsU-lang-latest/SYsU-lang/parser/asg.hpp"
+  #include "asg.hpp"
+  Mgr g;
   extern Obj* gRoot;
 %}
 %union {
   Obj* Obj;
   Expr* Expr;
+  ExprList* ExprList;
   Decl* Decl;
+  Decl* DeclList;
   IntegerLiteral* IntegerLiteral;
   FloatingLiteral* FloatingLiteral;
   DeclRefExpr* DeclRefExpr;
@@ -56,14 +59,14 @@ auto yylex() {
       return T_NUMERIC_CONSTANT;
     }
     else{
-      yylval.IntegerLiteral = Mgr::g.make<IntegerLiteral>();
+      yylval.IntegerLiteral = g.make<IntegerLiteral>();
       yylval.IntegerLiteral->val=atol(s);
       return T_NUMERIC_CONSTANT;
     }    
   }
   if (t == "identifier") {
     // stak.push_back(llvm::json::Object{{"value", s}});
-    yylval.Decl = Mgr::g.make<Decl>();
+    yylval.Decl = g.make<Decl>();
     yylval.Decl->name = s;
     return T_IDENTIFIER;
   }
@@ -288,13 +291,13 @@ int main() {
 %precedence PREC1
 %precedence PREC0
 
-%type <Decl> Declaration
-%type <Decl> VarDecl
-%type <Decl> ConstDecl
+%type <DeclList> Declaration
+%type <DeclList> VarDecl
+%type <DeclList> ConstDecl
 %type <Decl> LVal
 %type <Decl> Stmt
 
-%type <Expr> ConstDef
+%type <Decl> ConstDef
 %type <Expr> VarDef
 %type <Expr> ConstInitVal
 %type <Expr> InitVal
@@ -313,20 +316,14 @@ int main() {
 %type <Obj> BlockItem
 %type <Obj> CompUnit
 %type <Obj> CompUnitItem
-
+%type <DeclList> ConstDefList
 %start CompUnit
 %%
 CompUnit: 
   CompUnit CompUnitItem {
-  // auto inner = stak.back();
-  // stak.pop_back();
-  // stak.back().getAsObject()->get("inner")->getAsArray()->push_back(inner);
   gRoot=$1;
 }
 | CompUnitItem {
-  // auto inner = stak.back();
-  // stak.back() = llvm::json::Object{{"kind", "TranslationUnitDecl"},
-  //                                  {"inner", llvm::json::Array{inner}}};
   gRoot=$1;
 }
 ;
@@ -334,25 +331,15 @@ CompUnitItem:
   VarDecl {}
 | FuncDef {}
 ;
-/* VarDecl: 
-  BType T_IDENTIFIER T_SEMI {
-  // auto name = stak.back().getAsObject()->get("value")->getAsString()->str();
-  // stak.back() = llvm::json::Object{{"kind", "VarDecl"}, {"name", name}};
-}
-; */
 
 //Functions and global variable
 FuncDef: 
   BType T_IDENTIFIER T_L_PAREN T_R_PAREN Block {
-  // auto inner = stak.back();
-  // stak.pop_back();
-  // auto name = stak.back().getAsObject()->get("value")->getAsString()->str();
-  // stak.back() = llvm::json::Object{{"kind", "FunctionDecl"},
-  //                                  {"name", name},
-  //                                  {"inner", llvm::json::Array{inner}}};
 
 }
-| BType T_IDENTIFIER T_L_PAREN FuncFParams T_R_PAREN Block
+| BType T_IDENTIFIER T_L_PAREN FuncFParams T_R_PAREN Block {
+
+}
 ;
 
 FuncFParams:
@@ -378,7 +365,11 @@ MultiExpr:
 ;
 Block: 
   T_L_BRACE T_R_BRACE { $$=NULL; }
-| T_L_BRACE BlockItem T_R_BRACE { $$ = $2;  }
+| T_L_BRACE BlockItems T_R_BRACE { $$ = $2; }
+;
+BlockItems:
+  BlockItem 
+| BlockItems BlockItem
 ;
 BlockItem:
   Stmt {
@@ -391,27 +382,27 @@ BlockItem:
 
 BType:
   T_INT {
-    auto p = Mgr::g.make<Expr>();
+    auto p = g.make<Expr>();
     p->type = INT;
     $$ = p;
   }
 | T_FLOAT {
-    auto p = Mgr::g.make<Expr>();
+    auto p = g.make<Expr>();
     p->type = FLOAT;
     $$ = p;
   }
 | T_LONG T_LONG {
-    auto p = Mgr::g.make<Expr>();
+    auto p = g.make<Expr>();
     p->type = LONGLONG;
     $$ = p;
   }
 | T_CHAR {
-    auto p = Mgr::g.make<Expr>();
+    auto p = g.make<Expr>();
     p->type = CHAR;
     $$ = p;
   }
 | T_VOID {
-    auto p = Mgr::g.make<Expr>();
+    auto p = g.make<Expr>();
     p->type = VOID;
     $$ = p;
   }
@@ -444,31 +435,43 @@ Declaration:
 ;
 //常量
 ConstDecl: 
-  T_CONST BType ConstDef T_SEMI { 
-    auto p = Mgr::g.make<Decl>();
-    p->type = BType->type;
-    
+  T_CONST BType ConstDefList T_SEMI {
+    for(int i=0;i<$3->size();i++){
+      (*$3)[i]->type = $2->type;
+    }
+    $$ = $3;
   }
-| T_CONST BType ConstDef MultiConstDef T_SEMI
 ;
-MultiConstDef:
-  T_COMMA ConstDef
-| T_COMMA ConstDef MultiConstDef
+ConstDefList:
+  ConstDef {
+    $$ = g.make<DeclList>();
+    $$->push_back($1);
+  }
+| ConstDefList T_COMMA ConstDef {
+    $$ = $1;
+    $$->push_back($3);
+}
 ;
 ConstDef:
-  T_IDENTIFIER T_EQUAL ConstInitVal {}
-| T_IDENTIFIER SquareExpr T_EQUAL ConstInitVal
+  T_IDENTIFIER T_EQUAL ConstInitVal {
+    auto p = g.make<Decl>;
+    p->name = $1->name;
+    p->RefExpr = $3;
+}
+| T_IDENTIFIER SquareExpr T_EQUAL ConstInitVal {
+  
+}
 ;
 SquareExpr:
   T_L_SQUARE Expression T_R_SQUARE
-| T_L_SQUARE Expression T_R_SQUARE SquareExpr
+| SquareExpr T_L_SQUARE Expression T_R_SQUARE
 ;
 ConstInitVal:
   ConstExp {}
 ;
 LVal: 
   T_IDENTIFIER { 
-    auto p = Mgr::g.make<Decl>(); 
+    auto p = g.make<Decl>(); 
     p->name = $1->name;
   }
 ;
@@ -504,7 +507,7 @@ PrimaryExp:
 ;
 /* Number:
   T_NUMERIC_CONSTANT{
-    auto p = Mgr::g.make<IntegerLiteral>();
+    auto p = g.make<IntegerLiteral>();
     p->val=$1;
   }
 ; */
@@ -512,19 +515,19 @@ PrimaryExp:
 UnaryExp:
   PrimaryExp { $$ = $1; }
 | T_PLUS UnaryExp {
-  auto p = Mgr::g.make<UnaryOp>();
+  auto p = g.make<UnaryOp>();
   p->op = UnaryOp::kPos;
   p->sub = $2;
   $$ = p;
 }
 | T_MINUS UnaryExp {
-  auto p = Mgr::g.make<UnaryOp>();
+  auto p = g.make<UnaryOp>();
   p->op = UnaryOp::kNeg;
   p->sub = $2;
   $$ = p;
 }
 | T_EXCLAIM UnaryExp {
-  auto p = Mgr::g.make<UnaryOp>();
+  auto p = g.make<UnaryOp>();
   p->op = UnaryOp::kExc;
   p->sub = $2;
   $$ = p;
@@ -537,22 +540,22 @@ UnaryExp:
 MulExpr:
   UnaryExp
 | MulExpr T_STAR UnaryExp{
-    auto p = Mgr::g.make<BinaryExpr>(); p->type=INT;
-    p->op = kMul;
+    auto p = g.make<BinaryExpr>(); p->type=INT;
+    p->op =BinaryExpr::kMul;
     p->lft = $1;
     p->rht = $3;    
     $$ = p;
 }
 | MulExpr T_SLASH UnaryExp{
-    auto p = Mgr::g.make<BinaryExpr>(); p->type=INT;
-    p->op = kDiv;
+    auto p = g.make<BinaryExpr>(); p->type=INT;
+    p->op =BinaryExpr::kDiv;
     p->lft = $1;
     p->rht = $3;
     $$ = p;
 }
 | MulExpr T_PERCENT UnaryExp{
-    auto p = Mgr::g.make<BinaryExpr>(); p->type=INT;
-    p->op = kMod;
+    auto p = g.make<BinaryExpr>(); p->type=INT;
+    p->op =BinaryExpr::kMod;
     p->lft = $1;
     p->rht = $3;
     $$ = p;
@@ -561,15 +564,15 @@ MulExpr:
 AddExpr:
   MulExpr
 | AddExpr T_PLUS MulExpr{
-    auto p = Mgr::g.make<BinaryExpr>(); p->type=INT;
-    p->op = kAdd;
+    auto p = g.make<BinaryExpr>(); p->type=INT;
+    p->op =BinaryExpr::kAdd;
     p->lft = $1;
     p->rht = $3;
     $$ = p;
 }
 | AddExpr T_MINUS MulExpr{
-    auto p = Mgr::g.make<BinaryExpr>(); p->type=INT;
-    p->op = kSub;
+    auto p = g.make<BinaryExpr>(); p->type=INT;
+    p->op =BinaryExpr::kSub;
     p->lft = $1;
     p->rht = $3;
     $$ = p;
@@ -580,29 +583,29 @@ AddExpr:
 RelExp:
   AddExpr
 | RelExp T_LESS AddExpr{
-    auto p = Mgr::g.make<BinaryExpr>(); p->type=INT;
-    p->op = kLes;
+    auto p = g.make<BinaryExpr>(); p->type=INT;
+    p->op =BinaryExpr::kLes;
     p->lft = $1;
     p->rht = $3; 
     $$ = p;
 }
 | RelExp T_GREATER AddExpr{
-    auto p = Mgr::g.make<BinaryExpr>(); p->type=INT;
-    p->op = kGrt;
+    auto p = g.make<BinaryExpr>(); p->type=INT;
+    p->op =BinaryExpr::kGrt;
     p->lft = $1;
     p->rht = $3; 
     $$ = p;
 }
 | RelExp T_LESSEQUAL AddExpr{
-    auto p = Mgr::g.make<BinaryExpr>(); p->type=INT;
-    p->op = kLse;
+    auto p = g.make<BinaryExpr>(); p->type=INT;
+    p->op =BinaryExpr::kLse;
     p->lft = $1;
     p->rht = $3; 
     $$ = p;
 }
 | RelExp T_GREATEREQUAL AddExpr{
-    auto p = Mgr::g.make<BinaryExpr>(); p->type=INT;
-    p->op = kGre;
+    auto p = g.make<BinaryExpr>(); p->type=INT;
+    p->op =BinaryExpr::kGre;
     p->lft = $1;
     p->rht = $3; 
     $$ = p;
@@ -611,15 +614,15 @@ RelExp:
 EqExp:
   RelExp  { $$ = $1 }
 | EqExp T_EQUALEQUAL RelExp {
-    auto p = Mgr::g.make<BinaryExpr>(); p->type=INT;
-    p->op = kEqq;
+    auto p = g.make<BinaryExpr>(); p->type=INT;
+    p->op =BinaryExpr::kEqq;
     p->lft = $1;
     p->rht = $3; 
     $$ = p;
 }
 | EqExp T_EXCLAIMEQUAL RelExp {
-    auto p = Mgr::g.make<BinaryExpr>(); p->type=INT;
-    p->op = kExe;
+    auto p = g.make<BinaryExpr>(); p->type=INT;
+    p->op =BinaryExpr::kExe;
     p->lft = $1;
     p->rht = $3; 
     $$ = p;
@@ -628,8 +631,8 @@ EqExp:
 LAndExp:
   EqExp { $$ = $1 }
 | LAndExp T_AMPAMP EqExp {
-    auto p = Mgr::g.make<BinaryExpr>(); p->type=INT;
-    p->op = kAnd;
+    auto p = g.make<BinaryExpr>(); p->type=INT;
+    p->op =BinaryExpr::kAnd;
     p->lft = $1;
     p->rht = $3; 
     $$ = p;
@@ -638,8 +641,8 @@ LAndExp:
 LOrExp:
   LAndExp { $$ = $1 }
 | LOrExp T_PIPEPIPE LAndExp {
-    auto p = Mgr::g.make<BinaryExpr>(); p->type=INT;
-    p->op = kOr;
+    auto p = g.make<BinaryExpr>(); p->type=INT;
+    p->op =BinaryExpr::kOr;
     p->lft = $1;
     p->rht = $3; 
     $$ = p;
